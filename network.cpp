@@ -75,6 +75,8 @@ MLB::AsynchSocketInterface::AsynchSocketInterface(QObject* parent)
 
     connect(&m_thread, &QThread::finished,
             tcp_server, &NetworkTcpServer::deleteLater);
+    connect(this, &AsynchSocketInterface::__killSockets__,
+            tcp_server, &NetworkTcpServer::__killSockets__);
 
     m_thread.start();
 
@@ -431,6 +433,14 @@ void MLB::NetworkTcpServer::shutDownServer()
     }
 
     emit signalServerOpen(false);
+}
+/*
+ *
+ */
+void MLB::NetworkTcpServer::__killSockets__()
+{
+    shutDownServer();
+    __killNetworkThread__();
 }
 /*
  *

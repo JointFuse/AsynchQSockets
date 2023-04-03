@@ -164,6 +164,7 @@ public slots:
     void postResponse(QByteArray data, QMetaType type, QTcpSocket* recipient);
     void initServer(int port);
     void shutDownServer();
+    void __killSockets__();
 
 private slots:
     void slotNewConnection();
