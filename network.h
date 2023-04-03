@@ -12,6 +12,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QSemaphore>
+#include <QTest>
 
 namespace MLB {
 
