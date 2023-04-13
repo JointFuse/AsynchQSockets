@@ -13,6 +13,7 @@
 #include <QTcpSocket>
 #include <QSemaphore>
 #include <QTest>
+#include <QMetaType>
 
 namespace MLB {
 
@@ -68,7 +69,7 @@ protected:
     void __killNetworkThread__();
 
 private:
-    static QSemaphore m_threadKillSem;
+    static std::map<void*, QSemaphore> m_threadKillSem;
 
 };
 
@@ -83,7 +84,8 @@ class AsynchSocketInterface : public QObject
 signals:
     void signalUdpGotRequest(QByteArray data);                                  //
     void signalUdpPostResponse(QByteArray data);
-    void signalSocketOpen(bool state);                                          // Состояние сокета
+    void signalRecvSocketOpen(bool state);                                      // Состояние сокета
+    void signalSendSocketOpen(bool state);                                      // Состояние сокета
     void signalBindRecvSocket(int port, QString address);                       // Подключение сокета к указанному пору
     void signalUnbindRecvSocket();                                              // Отключение сокета от чтения порта
     void signalBindSendSocket(int port, QString address);                       // Подключение сокета к указанному пору
@@ -97,9 +99,12 @@ signals:
     void signalTcpGotRequest(QByteArray data, QTcpSocket* sender);
     void __killSockets__();
 
+    qint64 synchSendUDP(QByteArray);
+
 public:
     AsynchSocketInterface (QObject* parent = nullptr);
     ~AsynchSocketInterface(                         );
+
 
 private:
     QThread m_thread;
@@ -203,5 +208,7 @@ private:
 //------------------------------------------------------------------------------
 // ~MLB
 }
+
+Q_DECLARE_METATYPE(MLB::NetworkUdp)
 
 #endif // NETWORK_H

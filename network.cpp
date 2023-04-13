@@ -7,7 +7,7 @@ using namespace Network;
 
 //------------------------------------------------------------------------------
 
-QSemaphore NetworkBase::m_threadKillSem;
+std::map<void*, QSemaphore> NetworkBase::m_threadKillSem;
 
 //------------------------------------------------------------------------------
 /*
@@ -15,7 +15,7 @@ QSemaphore NetworkBase::m_threadKillSem;
  */
 MLB::NetworkBase::NetworkBase(QObject* parent) : QObject(parent)
 {
-    m_threadKillSem.release();
+    m_threadKillSem[thread()].release();
 }
 /*
  *
@@ -24,14 +24,17 @@ bool MLB::NetworkBase::moveToThread(QThread* thread)
 {
     if (parent() == nullptr)
     {
+        auto oldThread = QObject::thread();
         QObject::moveToThread(thread);
+        m_threadKillSem[oldThread].acquire();
+        m_threadKillSem[thread].release();
         return true;
     }
     else
     {
         qDebug() << "[" << udp_socket_name << "]"
                  << "To move socket to another thread, "
-                 <<"it must not have a parent!";
+                 << "it must not have a parent!";
         return false;
     }
 }
@@ -40,12 +43,13 @@ bool MLB::NetworkBase::moveToThread(QThread* thread)
  */
 void MLB::NetworkBase::__killNetworkThread__()
 {
-    m_threadKillSem.acquire();
+    m_threadKillSem[thread()].acquire();
 
-    if (m_threadKillSem.available())
+    if (m_threadKillSem[thread()].available())
         return;
 
-    QThread::currentThread()->exit();
+    if (qApp->thread() != thread())
+        thread()->exit();
 }
 
 //------------------------------------------------------------------------------
@@ -67,8 +71,14 @@ MLB::AsynchSocketInterface::AsynchSocketInterface(QObject* parent)
             loader, &NetworkUdp::sendDatagram,
             Qt::QueuedConnection);
     connect(loader, &NetworkUdp::signalRecvSocketOpen,
-            this, &AsynchSocketInterface::signalSocketOpen,
+            this, &AsynchSocketInterface::signalRecvSocketOpen,
             Qt::QueuedConnection);
+    connect(loader, &NetworkUdp::signalSendSocketOpen,
+            this, &AsynchSocketInterface::signalSendSocketOpen,
+            Qt::QueuedConnection);
+    connect(this, &AsynchSocketInterface::synchSendUDP,
+            loader, &NetworkUdp::sendDatagram,
+            Qt::DirectConnection);
 
     NetworkTcpServer* tcp_server = new NetworkTcpServer();
     tcp_server->moveToThread(&m_thread);
@@ -183,7 +193,8 @@ bool MLB::NetworkUdp::initRecvSocket(int portRecv, QString address)
     {
         state = false;
         qDebug() << "[" << udp_client_name << "]"
-                 << "Port =" << portRecv << msg_bind_fail;
+                 << address+":"+QString::number(portRecv).toStdString().c_str()
+                 << msg_bind_fail;
     }
 
     if (!state)
@@ -210,10 +221,12 @@ void MLB::NetworkUdp::disconnectRecvSocket()
  */
 void MLB::NetworkUdp::enableReading(bool state)
 {
-    if (m_udpRecvSocket == nullptr || m_udpRecvSocket->state() != QAbstractSocket::BoundState)
+    if (m_udpRecvSocket == nullptr ||
+        m_udpRecvSocket->state() != QAbstractSocket::BoundState)
     {
-        qDebug() << "[" << udp_client_name << "]"
-                 << "Can't read from uninitialized or closed socket";
+        if (state)
+            qDebug() << "[" << udp_client_name << "]"
+                     << "Can't read from uninitialized or closed socket";
         return;
     }
 
@@ -249,32 +262,37 @@ bool MLB::NetworkUdp::initSendSocket(int portSend, QString address)
 
     bool state{ true };
 
-    if (m_udpSendSocket->bind(QHostAddress(QHostAddress::AnyIPv4), portSend))
+    if (m_udpSendSocket->bind(QHostAddress(QHostAddress::AnyIPv4), -1, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint))
     {
         qDebug() << "[" << udp_server_name << "]"
-                 << "Port =" << portSend << msg_bind_success;
+                 << m_udpSendSocket->localAddress().toString().toStdString().c_str()+":"
+                    +QString::number(m_udpSendSocket->localPort()).toStdString().c_str()
+                 << msg_bind_success;
 
-        if (address == multicast_group_address)
-        {
-            if (m_udpSendSocket->joinMulticastGroup(QHostAddress(address)))
-            {
-                qDebug() << "[" << udp_server_name << "]"
-                         << "Adress ="<< address << msg_MG_join_success;
-            }
-            else
-            {
-                state = false;
-                qDebug() << "[" << udp_server_name << "]"
-                         << "Adress ="<< address << msg_MG_join_fail;
-            }
-        }
+//        if (address == multicast_group_address)
+//        {
+//            if (m_udpSendSocket->joinMulticastGroup(QHostAddress(address)))
+//            {
+//                qDebug() << "[" << udp_server_name << "]"
+//                         << "Adress ="<< address << msg_MG_join_success;
+//            }
+//            else
+//            {
+//                state = false;
+//                qDebug() << "[" << udp_server_name << "]"
+//                         << msg_MG_join_fail;
+//            }
+//        }
+
+        m_addressToSend = address;
+        m_portToSend = portSend;
     }
     else
     {
         state = false;
         qDebug() << "[" << udp_server_name << "]"
-                 << "Port =" << portSend << msg_bind_fail
-                 << m_udpSendSocket->bind(QHostAddress(QHostAddress::AnyIPv4), portSend);
+                 << msg_bind_fail
+                 << m_udpSendSocket->bind(QHostAddress(QHostAddress::AnyIPv4), -1);
     }
 
     if (!state)
@@ -292,6 +310,8 @@ void MLB::NetworkUdp::disconnectSendSocket()
     {
         m_udpSendSocket->close();
         qDebug() << "[" << udp_server_name << "]"
+                 << m_udpSendSocket->localAddress().toString().toStdString().c_str()+":"
+                    +QString::number(m_udpSendSocket->localPort()).toStdString().c_str()
                  << msg_closed;
         emit signalSendSocketOpen(false);
     }
@@ -302,10 +322,10 @@ void MLB::NetworkUdp::disconnectSendSocket()
 qint64 MLB::NetworkUdp::sendDatagram(QByteArray data)
 {
     return m_udpSendSocket->writeDatagram(
-        data,
-        QHostAddress(m_addressToSend),
-        m_portToSend
-    );
+                data,
+                QHostAddress(m_addressToSend),
+                m_portToSend
+            );
 }
 /*
  *
