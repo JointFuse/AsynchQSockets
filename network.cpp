@@ -265,8 +265,8 @@ bool MLB::NetworkUdp::initSendSocket(int portSend, QString address)
     if (m_udpSendSocket->bind(QHostAddress(QHostAddress::AnyIPv4), -1, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint))
     {
         qDebug() << "[" << udp_server_name << "]"
-                 << m_udpSendSocket->localAddress().toString().toStdString().c_str()+":"
-                    +QString::number(m_udpSendSocket->localPort()).toStdString().c_str()
+                 << (m_udpSendSocket->localAddress().toString()+":"
+                    +QString::number(m_udpSendSocket->localPort())).toStdString().c_str()
                  << msg_bind_success;
 
 //        if (address == multicast_group_address)
@@ -310,8 +310,8 @@ void MLB::NetworkUdp::disconnectSendSocket()
     {
         m_udpSendSocket->close();
         qDebug() << "[" << udp_server_name << "]"
-                 << m_udpSendSocket->localAddress().toString().toStdString().c_str()+":"
-                    +QString::number(m_udpSendSocket->localPort()).toStdString().c_str()
+                 << (m_udpSendSocket->localAddress().toString()+":"
+                    +QString::number(m_udpSendSocket->localPort())).toStdString().c_str()
                  << msg_closed;
         emit signalSendSocketOpen(false);
     }
